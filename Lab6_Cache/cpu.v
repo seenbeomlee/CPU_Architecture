@@ -12,9 +12,9 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 	output [`WORD_SIZE-1:0] address1;
 	wire [`WORD_SIZE-1:0] address1;
 	output readM2;
-	wire readM2;
+	reg readM2;
 	output writeM2;
-	wire writeM2;
+	reg writeM2;
 	output [`WORD_SIZE-1:0] address2;
 	wire [`WORD_SIZE-1:0] address2;
 
@@ -26,6 +26,8 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 	input finish;
 	wire finish;
 	reg [`WORD_SIZE-1:0] ex_mem_A, mem_wb_A;
+	reg inst_check;
+	reg ID_EX_inst_check;
 /* modified */
 
 	output [`WORD_SIZE-1:0] num_inst;
@@ -120,7 +122,8 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 	assign address1 = pc;
 	assign data1 = `WORD_SIZE'bz;
 	assign data2 = EX_MEM_signal[4] ? EX_MEM_operand_rt : `WORD_SIZE'bz; 
-	assign output_port = ID_EX_signal[3] ? mem_wb_A : 0; 
+	//assign output_port = ID_EX_signal[3] ? mem_wb_A : 0;
+	assign output_port = ID_EX_signal[3] ? A : 0; 
 	assign is_halted = ID_EX_is_halted;
 	assign num_inst = ID_EX_num_inst;
 
@@ -136,8 +139,8 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 
 	/* memory data */
 	assign address2 = EX_MEM_alu_result;
-	assign readM2 = EX_MEM_signal[3];
-	assign writeM2 = EX_MEM_signal[4];
+	//assign readM2 = EX_MEM_signal[3];
+	//assign writeM2 = EX_MEM_signal[4];
 	
 	alu ALU(.OpCode(ID_EX_signal[20:17]), .A(A), .B(B), .funcCode(ID_EX_signal[16:11]), .C(C));
 
@@ -202,7 +205,8 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 		pc <= 0;
 		next_pc <= 0;
 		pc_num_inst <= 0;
-		readM1 <= 0;
+		readM1 <= 1'b1;
+		readM2 <= 1'b1;
 		flush <= 0;
 		ID_EX_signal[8] <= 0;
 		EX_MEM_signal[4] <= 0;
@@ -213,6 +217,10 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 		regs[1] <= 0;
 		regs[2] <= 0;
 		regs[3] <= 0;
+
+		inst_check <= 1'b0;
+		ID_EX_inst_check = 1'b0;
+		writeM2 <= 1'b0;
 	end
 
 	always @(*) begin
@@ -222,7 +230,7 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 		else if (ID_EX_signal[1]  && (ID_EX_predict_pc != A)) is_stall = 1;
 		else if (ID_EX_signal[0] && bcond && (ID_EX_predict_pc != target)) is_stall = 1;
 		else if (ID_EX_signal[0] && ~bcond && (ID_EX_predict_pc != ID_EX_pc)) is_stall = 1;
-		$display("rs: %d, rt: %d, dest: %d, Load?: %d, is_stall?: %d, IF_ID_Op_Code: %d, IF_ID_Func_Code: %d, output: %h", rs, rt, ID_EX_signal[10:9], ID_EX_signal[7], is_stall, IF_ID_Op_Code, IF_ID_Func_Code, output_port);
+		//$display("rs: %d, rt: %d, dest: %d, Load?: %d, is_stall?: %d, IF_ID_Op_Code: %d, IF_ID_Func_Code: %d, output: %h", rs, rt, ID_EX_signal[10:9], ID_EX_signal[7], is_stall, IF_ID_Op_Code, IF_ID_Func_Code, output_port);
 		
 
 		next_pc = predict_pc;
@@ -244,7 +252,8 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 			pc <= 0;
 			next_pc <= 0;
 			pc_num_inst <= 0;
-			readM1 <= 0;
+			readM1 <= 1'b1;
+			readM2 <= 1'b1;
 			flush <= 0;
 			ID_EX_signal[8] <= 0;
 			EX_MEM_signal[4] <= 0;
@@ -256,6 +265,10 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 			regs[1] <= 0;
 			regs[2] <= 0;
 			regs[3] <= 0;
+
+			inst_check <= 1'b0;
+			ID_EX_inst_check <= 1'b0;
+			writeM2 <= 1'b0;
 		end
 /* modified */
 		else if(finish) begin
@@ -277,9 +290,11 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 			else if (ID_EX_signal[0] && ~bcond && ID_EX_predict_pc != ID_EX_pc) begin
 				pc <= ID_EX_pc;
 			end
+			/*
 			else if(current_is_halted) begin
 				readM1 <= 0;
 			end
+			*/
 			else if (((rs == ID_EX_signal[10:9] && (use_rs)) || (rt == ID_EX_signal[10:9] && (use_rt))) && ID_EX_signal[7]) begin
 				pc <= ID_EX_pc;
 			end
@@ -311,9 +326,16 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 				IF_ID_num_inst <= ID_EX_num_inst;
 				ID_EX_num_inst <= ID_EX_num_inst;
 				ID_EX_signal <= 21'b0;
+
+				//inst_check <= 1'b0;
 			end
 			else begin
 				flush <= 0;
+
+				inst_check <= !is_stall;
+
+				ID_EX_inst_check <= inst_check;
+
 				IF_ID_num_inst <= pc_num_inst;
 
 				ID_EX_pc <= IF_ID_pc;
@@ -332,15 +354,16 @@ module cpu(Clk, Reset_N, finish, readM1, address1, data1, readM2, writeM2, addre
 				ID_EX_num_inst <= IF_ID_num_inst;
 				ID_EX_signal <= signal;
 			end
-
-ex_mem_A <= A;
+readM2 <= ID_EX_inst_check ? EX_MEM_signal[3] : 1'b0;
+writeM2 <= ID_EX_inst_check && EX_MEM_signal[4];
+//ex_mem_A <= A;
 			EX_MEM_pc <= ID_EX_pc;
 			EX_MEM_alu_result <= C;
 			EX_MEM_operand_rt <= ID_EX_operand_rt;
 
 			EX_MEM_signal <= ID_EX_signal[10:4];
 
-mem_wb_A <= ex_mem_A;
+//mem_wb_A <= ex_mem_A;
 			mem_wb_pc <= EX_MEM_pc;
 
 			mem_wb_alu_result <= EX_MEM_alu_result;

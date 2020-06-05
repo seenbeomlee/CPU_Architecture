@@ -118,6 +118,7 @@ module cpu_TB();
 		
 	always @ (posedge clk) begin 
 		if (reset_n == 1) begin
+			$display("Clock #%d", num_clock);
 			num_clock = num_clock+1;
 			for(i=0; i<`NUM_TEST; i=i+1) begin
 				if (num_inst == TestNumInst[i]) begin

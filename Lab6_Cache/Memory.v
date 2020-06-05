@@ -39,7 +39,11 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2,w
 	reg [`WORD_SIZE-1:0] timer;
 	
 	
-	always@(posedge clk)
+	always@(posedge clk) begin
+
+		//$display("timer: %d\n", timer);
+		$display("readM1: %d, readM2: %d, writeM2: %d", readM1, readM2, writeM2);
+
 		if(!reset_n) begin
 			finish <= 1'b1;
 			timer <= 16'b0;
@@ -244,6 +248,10 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2,w
 			memory[16'hc6] <= 16'hf01d;
 		end
 		else if(readM1 || readM2 || writeM2) begin
+
+			$display("timer: %d ", timer);
+			$display("finish: %d ", finish);
+
 			if(finish) begin//writeback
 				if(evict1[`DIRTY]) begin
 					memory[{evict1[76:66],address1[4:2],2'b00}] <= evict1[15:0];
@@ -272,6 +280,7 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2,w
 					finish <= 1'b1;
 			end
 		end
+	end
 endmodule
 
 /*
