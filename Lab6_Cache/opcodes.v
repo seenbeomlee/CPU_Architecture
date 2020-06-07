@@ -41,9 +41,8 @@
 `define	WORD_SIZE	16			
 `define	NUM_REGS	4
 
-/* temp */
-`define LINE_SIZE 77
-`define BLOCK_NUM 8
+`define LINE_SIZE 78
+`define LINE_NUM 4
 `define BLOCK_SIZE 4
 `define DIRTY 64
 `define VALID 65

@@ -1,9 +1,9 @@
 `timescale 1ns/1ns
 `define PERIOD1 100
+`define WORD_SIZE 16
 
 `define NUM_TEST 56
 `define TESTID_SIZE 5
-`include "opcodes.v"
 
 module cpu_TB();
 	reg reset_n;    // active-low RESET signal
@@ -21,20 +21,14 @@ module cpu_TB();
 	wire [`WORD_SIZE-1:0] num_inst;		// number of instruction during execution
 	wire [`WORD_SIZE-1:0] output_port;	// this will be used for a "WWD" instruction
 	wire is_halted;				// set if the cpu is halted
-	wire finish;
-	wire [`WORD_SIZE-1:0] access_num;
-	wire [`WORD_SIZE-1:0] hit_num;
-	wire [`WORD_SIZE*`BLOCK_SIZE-1:0] data1_mem;
-	wire [`WORD_SIZE*`BLOCK_SIZE-1:0] data2_mem;
-	wire [`LINE_SIZE-1:0] evict1;
-	wire [`LINE_SIZE-1:0] evict2;
-	wire [`WORD_SIZE-1:0] write_data;
-
+	
+	//modified
+	wire is_ready; // memory request acknowledgement
+	
 	// instantiate the unit under test
-	cpu UUT (clk, reset_n, finish, readM1, address1, data1, readM2, writeM2, address2, data2, num_inst, output_port, is_halted);
-	Cache NUUT(!clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2,
- 	finish,access_num,hit_num, readM1_mem,readM2_mem, writeM2_mem,data1_mem,write_data, data2_mem, evict1,evict2, finish_mem);
-	Memory MEM(clk, reset_n, readM1_mem, address1, data1_mem, readM2_mem, writeM2_mem, address2,write_data, data2_mem, evict1,evict2, finish_mem);
+	cpu UUT (clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, num_inst, output_port, is_halted, is_ready);
+	Memory NUUT(!clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, is_ready);
+
 	// initialize inputs
 	initial begin
 		clk = 0;           // set initial clock value	
@@ -115,10 +109,13 @@ module cpu_TB();
 	
 	reg [`WORD_SIZE-1:0] i;	
 	reg [`WORD_SIZE-1:0] num_clock;
-		
-	always @ (posedge clk) begin 
+	
+
+	
+	always @ (posedge clk) begin
+
+		//$display("clock: %d, is_ready: %d", num_clock, is_ready);
 		if (reset_n == 1) begin
-			$display("Clock #%d", num_clock);
 			num_clock = num_clock+1;
 			for(i=0; i<`NUM_TEST; i=i+1) begin
 				if (num_inst == TestNumInst[i]) begin
@@ -149,7 +146,6 @@ module cpu_TB();
 	always @(testbench_finish) begin
 		
 		$display("Clock #%d", num_clock);
-		$display("Access #%d, Hit #%d",access_num,hit_num);
 		$display("The testbench is finished. Summarizing...");
 		for(i=0; i<`NUM_TEST; i=i+1) begin
 			if (TestPassed[i] == 1)
