@@ -5,7 +5,7 @@
 `define WORD_SIZE 16   //   instead of 2^16 words to reduce memory
          //   requirements in the Active-HDL simulator 
 
-module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, is_ready);
+module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, is_ready, BG, BR, dma_address, external_data0, external_data1, external_data2, external_data3, end_interrupt, dma_ready, start_interrupt);
    input clk;
    wire clk;
    input reset_n;
@@ -32,8 +32,10 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
 
    output is_ready;
    reg is_ready;
+
    reg[`WORD_SIZE-1:0] timer;
 
+   reg[`WORD_SIZE-1:0] counting;
    reg mem_ready;
 
    reg [`WORD_SIZE-1:0] access;
@@ -42,22 +44,7 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
    reg random;
    reg check;
    /* Cache */
-   /*
-      32 word 2 way associative cache
-      line size is 4 words
-      16 word for each cache, in TSC 16 bit address so 1 word == 16 bit
-      1 word = 2 byte = 16 bits = 2 ^ 4 bits
-      So C = 32 * 2 ^ 4 = 2 ^ 9
-      Address is 16 bits, so M = 2 ^ 16
-      2 way associative so a = 2
-      line size is 4 words so B = 2 ^ 3 (8 bytes)
 
-      Address field
-      Tag: logM - log(C/a) = 16 - 8 = 8 bits
-      IDX: log((C/a)/B) = 5 bits
-      BO: log(B/G) = 2 bits
-      G: logG = 1 bits
-   */
       //Address
       /*************************************************************/
       /*        TAG(15:4)                 /   IDX(3:2)   / BO(1:0) */
@@ -75,21 +62,55 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
    wire I_hit;
    wire D_hit;
 
+	input BG;
+	wire BG;
+	input BR;
+	wire BR;
+	input end_interrupt;
+	wire end_interrupt;
+   input start_interrupt;
+   wire start_interrupt;
+
+   input wire [`WORD_SIZE-1:0] external_data0;
+   input wire [`WORD_SIZE-1:0] external_data1;
+   input wire [`WORD_SIZE-1:0] external_data2;
+   input wire [`WORD_SIZE-1:0] external_data3;
+
+   input [`WORD_SIZE-1:0] dma_address;
+	wire [`WORD_SIZE-1:0] dma_address;
+   reg[`WORD_SIZE-1:0] load_time;
+   reg[`WORD_SIZE-1:0] load_time_write_through;
+
+   output dma_ready;
+   reg dma_ready;
+   reg[`WORD_SIZE-1:0] dma_timer;
+
+   reg miss_check;
+
    assign data2 = readM2 ? outputData2:`WORD_SIZE'bz;
    assign I_hit = ((address1[15:4] == cache[address1[3:2]][77:66]) && cache[address1[3:2]][`VALID]) || ((address1[15:4] == cache_2[address1[3:2]][77:66]) && cache_2[address1[3:2]][`VALID]);
    assign D_hit = ((address2[15:4] == cache[address2[3:2]][77:66]) && cache[address2[3:2]][`VALID]) || ((address2[15:4] == cache_2[address2[3:2]][77:66]) && cache_2[address2[3:2]][`VALID]);
 
-   always@(posedge clk)
+   always@(posedge clk) begin
       if(!reset_n)
          begin
             is_ready <= 1'b0;
+
+            load_time <= 16'b100;
+            load_time_write_through <= 16'b100;
+
+            miss_check <= 1'b0;
+            dma_ready <= 1'b1;
+            dma_timer <= 16'b100;
+            counting <= 16'b000;
+
             mem_ready <= 1'b0;
             timer <= 16'b100;
             access <= 0;
             hit <= 0;
-            random <= $urandom%2;
-            check <= 1'b0;
 
+            check <= 1'b0;
+            LRU <= 4'b0000;
             cache[0] = 78'b0;
             cache[1] = 78'b0;
             cache[2] = 78'b0;
@@ -305,21 +326,28 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
             memory[16'hc4] <= 16'h4ffe;
             memory[16'hc5] <= 16'hf819;
             memory[16'hc6] <= 16'hf01d;
-         end
+         end /* if end */
       
       else begin
-         
+         /* this is for extra credit 2 */
+			if(dma_address[15:4] == cache[dma_address[3:2]][77:66] && BG) begin//invalidate cache line sync-out because of device
+				cache[dma_address[3:2]][`VALID] <= 1'b0;
+         end
+         if(dma_address[15:4] == cache_2[dma_address[3:2]][77:66] && BG) begin//invalidate cache line sync-out because of device
+				cache_2[dma_address[3:2]][`VALID] <= 1'b0;
+         end
+         /* this is for extra credit 2 */
+
          $display("Access: %d, Hit: %d", access, hit);
 
          //cache hit
-       if(I_hit && D_hit || I_hit && !(readM2 || writeM2)) begin
+         if(I_hit && D_hit || I_hit && !(readM2 || writeM2)) begin
             
             if(readM1) begin //reading instruction from memory
                if(writeM2 && address1 == address2) begin
                   data1 <= data2;
                end
                else begin
-               //data1 <= memory[address1];
 
                   if(address1[15:4] == cache[address1[3:2]][77:66]) begin//if hit in set 1
                  LRU[address1[3:2]] <= 1;
@@ -369,7 +397,7 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
             if(writeM2) begin // CPU wants to write data to memory
                memory[address2] <= data2;
 
-
+            if(is_ready) begin
                if(address2[15:4] == cache[address2[3:2]][77:66]) begin//if hit in set 1
               LRU[address2[3:2]] <= 1;
                   case(address2[1:0])
@@ -381,7 +409,7 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
                end
 
                else if (address2[15:4] == cache_2[address2[3:2]][77:66]) begin//if hit in set 2
-              LRU[address2[3:2]] <= 0;
+                  LRU[address2[3:2]] <= 0;
                   case(address2[1:0])
                      2'b00 : cache_2[address2[3:2]][15:0] <= data2;
                      2'b01 : cache_2[address2[3:2]][31:16] <= data2;
@@ -389,7 +417,18 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
                      2'b11 : cache_2[address2[3:2]][63:48] <= data2;
                   endcase
                end
+                  is_ready <= 1'b0;
+                  load_time_write_through <= 16'b100;
+            end
 
+               else if(load_time_write_through != 16'b0) begin
+                  load_time_write_through <= load_time_write_through-16'b1;
+               end
+
+               else begin 
+                  is_ready <= 1;
+                  memory[address2] <= data2;
+               end
             end
 
             access <= access + 1;
@@ -397,8 +436,9 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
          end
          
          //memory access
-         else if (readM1 || readM2 || writeM2) begin
 
+         /* miss & DMA is off */
+			else if((readM1 || readM2 || writeM2) && (!BG)) begin
             if(is_ready) begin
 
                if(readM1) begin
@@ -482,9 +522,55 @@ module Memory(clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, 
                end
                is_ready <= 1'b1;
             end
-
          end
-            
-      end
-         
+         else begin
+$display("miss & I/O!!");
+                  is_ready <= 1'b0;
+                  miss_check <= 1'b1;
+            end
+
+
+         if (BG && BR) begin /* write memory from external_device */
+$display("dma_address: %d, dma_ready: %d, I_hit: %d, D_hit: %d, counting: %d", dma_address, dma_ready, I_hit, D_hit, counting);
+
+            if(dma_ready) begin
+               memory[dma_address+16'b0] <= external_data0;
+               memory[dma_address+16'b1] <= external_data1;
+               memory[dma_address+16'b10] <= external_data2;
+               memory[dma_address+16'b11] <= external_data3;
+               dma_ready <= 1'b0;
+               dma_timer <= 16'b100;
+               counting <= counting + 1;
+            end
+            else if(dma_timer != 16'b0) begin
+               dma_timer <= dma_timer -1;
+            end
+            else begin
+                  dma_ready <= 1'b1;
+            end
+         end
+
+      end /* else end */
+
+      /* if finished, then display the result */
+      if(end_interrupt) begin
+			$display("memory[16'h10]:%h",memory[16'h10]);
+            $display("memory[16'h11]:%h",memory[16'h11]);
+            $display("memory[16'h12]:%h",memory[16'h12]);
+            $display("memory[16'h13]:%h",memory[16'h13]);
+            $display("memory[16'h14]:%h",memory[16'h14]);
+            $display("memory[16'h15]:%h",memory[16'h15]);
+            $display("memory[16'h16]:%h",memory[16'h16]);
+            $display("memory[16'h17]:%h",memory[16'h17]);
+            $display("memory[16'h18]:%h",memory[16'h18]);
+            $display("memory[16'h19]:%h",memory[16'h19]);
+            $display("memory[16'h1a]:%h",memory[16'h1a]);
+            $display("memory[16'h1b]:%h",memory[16'h1b]);
+            /* if there was miss & I/O, update is_ready to 1 */
+            if(miss_check) begin
+               is_ready <= 1'b1;
+            end
+
+		end
+   end /* always end */
 endmodule

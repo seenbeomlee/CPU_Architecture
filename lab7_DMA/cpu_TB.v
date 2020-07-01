@@ -5,6 +5,8 @@
 `define NUM_TEST 56
 `define TESTID_SIZE 5
 
+`include "opcodes.v"
+
 module cpu_TB();
 	reg reset_n;    // active-low RESET signal
 	reg clk;        // clock signal	
@@ -22,11 +24,29 @@ module cpu_TB();
 	wire [`WORD_SIZE-1:0] output_port;	// this will be used for a "WWD" instruction
 	wire is_halted;				// set if the cpu is halted
 	
-	//modified
 	wire is_ready; // memory request acknowledgement
+
+	wire [`WORD_SIZE-1:0] dma_address_cpu;
+	wire [`WORD_SIZE-1:0] dma_address_out;
+	wire [`WORD_SIZE-1:0] offset;
+	wire [`WORD_SIZE-1:0] length;
+	wire dma_ready;
+	wire [`WORD_SIZE-1:0] external_data0;
+	wire [`WORD_SIZE-1:0] external_data1;
+	wire [`WORD_SIZE-1:0] external_data2;
+	wire [`WORD_SIZE-1:0] external_data3;
+	wire [`WORD_SIZE-1:0] cpu_data;
 	// instantiate the unit under test
-	cpu UUT (clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, num_inst, output_port, is_halted, is_ready);
-	Memory NUUT(!clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, is_ready);
+	cpu UUT (clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, num_inst, output_port, is_halted, is_ready, start_interrupt, end_interrupt, start_require, dma_address_cpu, BG, BR, cpu_data);
+	// ++ start_interrupt, end_interrupt, start_require, dma_address_cpu, BG, BR
+	Memory NUUT(!clk, reset_n, readM1, address1, data1, readM2, writeM2, address2, data2, is_ready, BG, BR,  dma_address_out + offset, external_data0, external_data1, external_data2, external_data3, end_interrupt, dma_ready, start_interrupt);
+	// ++ BG, BR, address_dma_out + offset, external_data, end_interrupt
+	// address_dma_out + offset == address_dma 
+	// address_dma_out + offset & BG are both in cache.v and memory.v 
+	external_device EXT(clk, external_data0, external_data1, external_data2, external_data3, BG, offset, start_interrupt);
+	DMA_controller DMA(clk, start_require, dma_address_cpu,  dma_address_out, BG, BR, offset, end_interrupt, dma_ready);
+	// ++ all
+
 
 	// initialize inputs
 	initial begin
